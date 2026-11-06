@@ -1,0 +1,369 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>NSAA Football MRI Forecaster</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+/* Layout: a scoreboard header over one working panel; four modes share one blend control.
+   Color: grass-tinted neutrals; two team colors (A red, B blue) used only for the two sides of a matchup. */
+:root{
+  --bg:#edf0ec; --panel:#fafbf9; --ink:#14201a; --muted:#56655d; --line:#d2dad4; --soft:#e4eae5;
+  --ca:#b2332b; --cb:#245b91; --good:#2d7a4f; --warn:#a8741a;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"Source Sans 3",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1511; --panel:#171f1a; --ink:#e7eee8; --muted:#93a399; --line:#2a382f; --soft:#202b24;
+  --ca:#e4695f; --cb:#6fa9e2; --good:#5bbd88; --warn:#d9a441; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1511; --panel:#171f1a; --ink:#e7eee8; --muted:#93a399; --line:#2a382f; --soft:#202b24;
+  --ca:#e4695f; --cb:#6fa9e2; --good:#5bbd88; --warn:#d9a441; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1040px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:16px}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(2rem,6vw,3.2rem);line-height:1;margin:0;letter-spacing:.01em;text-transform:uppercase}
+.sub{color:var(--muted);margin:6px 0 0;font-size:.95rem;max-width:60ch}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:2px solid var(--line);margin-bottom:18px}
+.tab{font-family:var(--display);font-weight:600;font-size:1.15rem;letter-spacing:.06em;text-transform:uppercase;background:none;border:0;color:var(--muted);
+  padding:8px 14px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tab:focus-visible,select:focus-visible,input:focus-visible,button:focus-visible{outline:2px solid var(--cb);outline-offset:2px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:18px}
+#m-match .controls{grid-template-columns:130px minmax(0,1.4fr) minmax(0,1.4fr) 160px}
+@media (max-width:700px){#m-match .controls{grid-template-columns:1fr}}
+label,.lab{display:block;font-family:var(--display);font-weight:600;font-size:.9rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+select,input[type=text]{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:9px 11px;min-width:0}
+input[type=range]{width:100%;accent-color:var(--ink)}
+.blend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;background:var(--soft);border-radius:8px;padding:10px 14px;margin-bottom:16px}
+.blend .lab{margin:0}.blend input{flex:1 1 180px;min-width:140px}.blend b{font-family:var(--display);font-size:1.15rem;font-variant-numeric:tabular-nums}
+.hidden{display:none!important}
+/* matchup */
+.vs{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center}
+.side h2{font-family:var(--display);font-weight:700;font-size:clamp(1.5rem,4.5vw,2.3rem);line-height:1.05;margin:0 0 4px;overflow-wrap:anywhere}
+.side.a h2{color:var(--ca)}.side.b h2{color:var(--cb)}.side.b{text-align:right}
+.meta{color:var(--muted);font-size:.9rem}
+.pct{text-align:center}.pct .n{font-family:var(--display);font-weight:700;font-size:clamp(2.6rem,9vw,4.6rem);line-height:1;font-variant-numeric:tabular-nums}
+.pct .l{font-size:.85rem;color:var(--muted)}
+.field{position:relative;height:34px;border-radius:6px;overflow:hidden;display:flex;margin:18px 0 6px;border:1px solid var(--line)}
+.field .fa{background:var(--ca)}.field .fb{background:var(--cb)}
+.field::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(90deg,transparent 0,transparent calc(10% - 2px),rgba(255,255,255,.55) calc(10% - 2px),rgba(255,255,255,.55) 10%)}
+.field i{position:absolute;left:50%;top:-1px;bottom:-1px;width:3px;background:#fff;z-index:2;transform:translateX(-1.5px)}
+.ticks{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:20px}
+.stat{border-top:2px solid var(--line);padding-top:8px}
+.stat .k{font-family:var(--display);font-weight:600;font-size:.85rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-family:var(--display);font-weight:600;font-size:1.7rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.alt{font-size:.85rem;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+.note{color:var(--muted);font-size:.9rem;margin:16px 0 0;max-width:80ch}
+.warn{color:var(--warn);font-size:.9rem;margin:8px 0 0}
+/* tables */
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th{font-family:var(--display);font-weight:600;font-size:.85rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:right;padding:6px 8px;border-bottom:2px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:nth-child(2),td:nth-child(2){text-align:left}
+th:first-child,td:first-child{text-align:left;width:2.5em}
+td.t{font-weight:600}
+.flag{font-size:.75rem;color:var(--warn);margin-left:6px;font-weight:400}
+.bar{display:inline-block;height:8px;border-radius:4px;background:var(--cb);vertical-align:middle;margin-left:8px}
+.title-odds{font-family:var(--display);font-weight:700;font-size:1.15rem}
+.seeds{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px;background:var(--bg)}
+.seedhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.seedgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:8px 14px}
+.seedrow{display:grid;grid-template-columns:2.2em minmax(0,1fr) auto auto;gap:6px;align-items:center}
+.seedrow .sn{font-family:var(--display);font-weight:700;font-size:1.2rem;text-align:right;color:var(--muted)}
+.seedrow select{padding:6px 8px;font-size:.92rem}
+.btn{font:inherit;font-family:var(--display);font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:.85rem;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+.btn:hover{border-color:var(--ink)}
+.mv{padding:5px 9px}
+.moved{color:var(--warn);font-size:.8rem;margin-left:6px}
+@media (max-width:560px){.vs{grid-template-columns:1fr 1fr}.pct{grid-column:1/-1;order:3}.field{margin-top:12px}}
+@media (prefers-reduced-motion:no-preference){.field .fa{transition:width .25s ease}}
+</style>
+
+<div class="wrap">
+<header>
+  <div>
+    <h1>NSAA Football MRI Forecaster</h1>
+    <p class="sub">Game forecasts and class rankings for Nebraska high school football, 2026 season, updated through the first round of the playoffs (Oct 30). Power ratings come from MRI; rankings blend power with strength of record.</p>
+  </div>
+</header>
+
+<div class="tabs" role="tablist" id="tabs">
+  <button class="tab" role="tab" data-m="match" aria-selected="true">Matchup</button>
+  <button class="tab" role="tab" data-m="compare" aria-selected="false">Compare</button>
+  <button class="tab" role="tab" data-m="field" aria-selected="false">Playoff odds</button>
+  <button class="tab" role="tab" data-m="rank" aria-selected="false">Rankings</button>
+</div>
+
+<div class="panel">
+<div class="blend hidden" id="blend">
+  <span class="lab">MRI blend</span>
+  <input type="range" id="w" min="0" max="100" step="5" value="70" aria-label="Power weight">
+  <b id="wl">70% power / 30% resume</b>
+</div>
+
+<section id="m-match">
+  <div class="controls">
+    <div><label for="fmtA">Format</label><select id="fmtA"><option>11-man</option><option>8-man</option><option>6-man</option></select></div>
+    <div><label for="ta">Team A</label><input type="text" id="ta" list="dl" autocomplete="off"></div>
+    <div><label for="tb">Team B</label><input type="text" id="tb" list="dl" autocomplete="off"></div>
+    <div><label for="loc">Site</label><select id="loc"><option value="0">Neutral site</option><option value="1">Team A at home</option><option value="-1">Team B at home</option></select></div>
+  </div>
+  <datalist id="dl"></datalist>
+  <div class="vs">
+    <div class="side a"><h2 id="na"></h2><div class="meta" id="ma"></div></div>
+    <div class="pct"><div class="n" id="pa"></div><div class="l">chance Team A wins</div></div>
+    <div class="side b"><h2 id="nb"></h2><div class="meta" id="mb"></div></div>
+  </div>
+  <div class="field" aria-hidden="true"><div class="fa" id="fa"></div><div class="fb" id="fb"></div><i></i></div>
+  <div class="ticks" aria-hidden="true"><span>A 100%</span><span>50%</span><span>B 100%</span></div>
+  <div class="stats">
+    <div class="stat"><div class="k">Team B win chance</div><div class="v" id="pb"></div></div>
+    <div class="stat"><div class="k">Odds A / B</div><div class="v" id="odds"></div></div>
+    <div class="stat"><div class="k">Likely score</div><div class="v" id="score"></div><div class="alt" id="alts"></div></div>
+    <div class="stat"><div class="k">Expected margin (A minus B)</div><div class="v" id="mar"></div></div>
+    <div class="stat"><div class="k">Likely margin range</div><div class="v" id="rng"></div></div>
+    <div class="stat"><div class="k">Power gap</div><div class="v" id="gap"></div></div>
+  </div>
+  <p class="warn" id="warn"></p>
+  <p class="note">Ratings are in points above the average team in the format. The likely score is the single most probable realistic final: the expected margin and a typical total for the format, nudged to scores that actually occur (multiples of touchdowns, extra points and field goals). It can sit a few points off the expected margin, and any one exact score is rarely more than a 1 to 2 percent chance. The margin range covers the middle half of games with a prediction like this one (a quarter land on each side outside it); the 80% range is wider, about plus or minus 22 points in 11-man, 26 in 8-man and 31 in 6-man. Single games vary a lot, and a rating gap tells you more about who wins than about the exact score. Teams can only meet inside a format, because 11-man, 8-man and 6-man ratings are not comparable.</p>
+</section>
+
+<section id="m-compare" class="hidden">
+  <div class="controls">
+    <div><label for="cb">Base team</label><input type="text" id="cb" list="dlAll" autocomplete="off"></div>
+    <div><label for="cc">Opponents</label><select id="cc"></select></div>
+    <div><label for="cl">Site</label><select id="cl"><option value="0">Neutral site</option><option value="1">Base team at home</option><option value="-1">Base team on the road</option></select></div>
+  </div>
+  <datalist id="dlAll"></datalist>
+  <div class="tw"><table id="ct"></table></div>
+</section>
+
+<section id="m-field" class="hidden">
+  <div class="controls">
+    <div><label for="fc">Class</label><select id="fc"></select></div>
+    <div><label for="fs">Field size</label><select id="fs"><option value="8">8 teams</option><option value="16" selected>16 teams</option><option value="32">32 teams</option></select></div>
+    <div><label for="fm">Seeding</label><select id="fm"><option value="nsaa">NSAA bracket</option><option value="mri">By MRI</option><option value="custom">Custom</option></select></div>
+    <div><label for="fr">Round 1</label><select id="fr"><option value="lock">Use real results</option><option value="sim">Simulate it</option></select></div>
+    <div><label for="fh">Sites</label><select id="fh"><option value="home">Higher seed hosts</option><option value="neutral">Neutral sites</option></select></div>
+  </div>
+  <div id="fe" class="seeds hidden">
+    <div class="seedhead"><span class="lab" style="margin:0">Set the seeds</span><button type="button" id="freset" class="btn">Reset seeds</button></div>
+    <div id="fseeds" class="seedgrid"></div>
+  </div>
+  <div class="tw"><table id="ft"></table></div>
+  <p class="note" id="fn"></p>
+</section>
+
+<section id="m-rank" class="hidden">
+  <div class="controls">
+    <div><label for="rc">Class</label><select id="rc"></select></div>
+  </div>
+  <div class="tw"><table id="rt"></table></div>
+  <p class="note">MRI score = 50 + 15 x (power weight x power z + resume weight x resume z). Power is NFPI Projected Power (offense plus defense, with last season as the starting point). Resume is wins minus the wins a top-20% team would be expected to have against the same schedule, per 9 games. Margins do not count in resume; forfeit results do. At 70/30 the blend cost nothing in forecast accuracy in a week-by-week test; lower power weights start to lose accuracy.</p>
+</section>
+</div>
+</div>
+
+<script>
+const DATA = {"teams":[{"id":"NE-omaha-westside","n":"Omaha Westside","c":"A","f":"11-man","w":10,"l":0,"o":30.78,"d":19.9,"zp":2.2269,"zr":1.9364,"rs":3.04,"ev":""},{"id":"NE-millard-south","n":"Millard South","c":"A","f":"11-man","w":9,"l":1,"o":32.92,"d":12.73,"zp":2.0055,"zr":2.0338,"rs":3.32,"ev":""},{"id":"NE-millard-north","n":"Millard North","c":"A","f":"11-man","w":9,"l":1,"o":19.54,"d":22.04,"zp":1.8267,"zr":1.9219,"rs":3.0,"ev":""},{"id":"NE-waverly","n":"Waverly","c":"B","f":"11-man","w":8,"l":2,"o":21.72,"d":19.92,"zp":1.8294,"zr":1.3844,"rs":1.47,"ev":""},{"id":"NE-gretna","n":"Gretna","c":"B","f":"11-man","w":10,"l":0,"o":19.12,"d":19.85,"zp":1.7124,"zr":2.1414,"rs":3.63,"ev":""},{"id":"NE-grand-island-central-catholic","n":"Grand Island Central Catholic","c":"C2","f":"11-man","w":10,"l":0,"o":25.33,"d":13.05,"zp":1.6863,"zr":1.247,"rs":1.08,"ev":""},{"id":"NE-omaha-skutt-catholic","n":"Omaha Skutt Catholic","c":"B","f":"11-man","w":8,"l":2,"o":16.53,"d":17.94,"zp":1.5141,"zr":1.2451,"rs":1.07,"ev":""},{"id":"NE-cedar-catholic","n":"Cedar Catholic","c":"C2","f":"11-man","w":10,"l":0,"o":22.63,"d":13.22,"zp":1.5748,"zr":1.1601,"rs":0.83,"ev":""},{"id":"NE-gretna-east","n":"Gretna East","c":"B","f":"11-man","w":9,"l":1,"o":21.12,"d":10.79,"zp":1.402,"zr":1.8655,"rs":2.84,"ev":""},{"id":"NE-bennington","n":"Bennington","c":"A","f":"11-man","w":9,"l":1,"o":17.67,"d":14.55,"zp":1.4157,"zr":1.5038,"rs":1.81,"ev":""},{"id":"NE-bergan-catholic","n":"Bergan Catholic","c":"C2","f":"11-man","w":10,"l":0,"o":20.82,"d":10.12,"zp":1.3595,"zr":1.5261,"rs":1.87,"ev":""},{"id":"NE-elkhorn-south","n":"Elkhorn South","c":"A","f":"11-man","w":7,"l":3,"o":12.43,"d":15.75,"zp":1.2377,"zr":1.3979,"rs":1.51,"ev":""},{"id":"NE-boys-town","n":"Boys Town","c":"C1","f":"11-man","w":10,"l":0,"o":15.0,"d":11.58,"zp":1.1678,"zr":1.1141,"rs":0.7,"ev":""},{"id":"NE-ashland-greenwood","n":"Ashland-Greenwood","c":"C1","f":"11-man","w":8,"l":2,"o":13.54,"d":9.91,"zp":1.0302,"zr":0.5893,"rs":-0.8,"ev":""},{"id":"NE-malcolm","n":"Malcolm","c":"C2","f":"11-man","w":8,"l":2,"o":15.34,"d":11.0,"zp":1.1574,"zr":0.8786,"rs":0.03,"ev":""},{"id":"NE-yutan","n":"Yutan","c":"C2","f":"11-man","w":9,"l":1,"o":10.24,"d":15.3,"zp":1.1223,"zr":1.2212,"rs":1.0,"ev":""},{"id":"NE-elkhorn","n":"Elkhorn","c":"B","f":"11-man","w":4,"l":6,"o":12.2,"d":9.13,"zp":0.9371,"zr":0.5166,"rs":-1.01,"ev":""},{"id":"NE-scottsbluff","n":"Scottsbluff","c":"B","f":"11-man","w":9,"l":1,"o":15.05,"d":7.71,"zp":1.0003,"zr":1.1063,"rs":0.68,"ev":""},{"id":"NE-blair","n":"Blair","c":"B","f":"11-man","w":9,"l":1,"o":9.49,"d":9.29,"zp":0.8253,"zr":1.1614,"rs":0.83,"ev":""},{"id":"NE-elkhorn-north","n":"Elkhorn North","c":"A","f":"11-man","w":6,"l":4,"o":9.55,"d":9.54,"zp":0.8388,"zr":0.6041,"rs":-0.76,"ev":""},{"id":"NE-aurora","n":"Aurora","c":"B","f":"11-man","w":9,"l":1,"o":10.05,"d":11.62,"zp":0.9522,"zr":1.1433,"rs":0.78,"ev":""},{"id":"NE-papillion-la-vista-south","n":"Papillion-La Vista South","c":"A","f":"11-man","w":7,"l":3,"o":8.53,"d":11.2,"zp":0.8668,"zr":0.9663,"rs":0.28,"ev":""},{"id":"NE-boone-central","n":"Boone Central","c":"C2","f":"11-man","w":10,"l":0,"o":13.78,"d":8.78,"zp":0.9908,"zr":1.0566,"rs":0.53,"ev":""},{"id":"NE-chadron","n":"Chadron","c":"C1","f":"11-man","w":9,"l":1,"o":10.41,"d":11.33,"zp":0.9553,"zr":0.9004,"rs":0.09,"ev":""},{"id":"NE-creighton-preparatory-school","n":"Creighton Preparatory School","c":"A","f":"11-man","w":5,"l":5,"o":8.28,"d":12.16,"zp":0.8982,"zr":0.8796,"rs":0.03,"ev":""},{"id":"NE-gothenburg","n":"Gothenburg","c":"C2","f":"11-man","w":8,"l":2,"o":6.36,"d":13.59,"zp":0.8766,"zr":0.8308,"rs":-0.11,"ev":""},{"id":"NE-norris","n":"Norris","c":"B","f":"11-man","w":4,"l":6,"o":8.45,"d":9.53,"zp":0.7896,"zr":0.5904,"rs":-0.8,"ev":""},{"id":"NE-bishop-neumann","n":"Bishop Neumann","c":"C2","f":"11-man","w":7,"l":3,"o":11.08,"d":5.4,"zp":0.7239,"zr":0.729,"rs":-0.4,"ev":""},{"id":"NE-sidney","n":"Sidney","c":"C1","f":"11-man","w":10,"l":0,"o":5.5,"d":14.8,"zp":0.8917,"zr":1.2216,"rs":1.0,"ev":""},{"id":"NE-ord","n":"Ord","c":"C2","f":"11-man","w":8,"l":2,"o":7.84,"d":5.81,"zp":0.5995,"zr":1.0705,"rs":0.57,"ev":""},{"id":"NE-wahoo","n":"Wahoo","c":"C1","f":"11-man","w":7,"l":3,"o":9.86,"d":2.57,"zp":0.5462,"zr":0.4119,"rs":-1.31,"ev":""},{"id":"NE-papillion-la-vista","n":"Papillion-La Vista","c":"A","f":"11-man","w":8,"l":2,"o":3.78,"d":12.39,"zp":0.7104,"zr":1.0321,"rs":0.46,"ev":""},{"id":"NE-omaha-north","n":"Omaha North","c":"A","f":"11-man","w":9,"l":1,"o":10.22,"d":6.73,"zp":0.7446,"zr":1.0804,"rs":0.6,"ev":""},{"id":"NE-northwest","n":"Northwest","c":"B","f":"11-man","w":8,"l":2,"o":7.34,"d":7.89,"zp":0.6689,"zr":1.1628,"rs":0.84,"ev":""},{"id":"NE-pierce","n":"Pierce","c":"C1","f":"11-man","w":9,"l":1,"o":9.57,"d":1.17,"zp":0.472,"zr":0.7574,"rs":-0.32,"ev":""},{"id":"NE-kearney","n":"Kearney","c":"A","f":"11-man","w":6,"l":4,"o":3.63,"d":7.48,"zp":0.488,"zr":0.557,"rs":-0.89,"ev":""},{"id":"NE-lincoln-southwest","n":"Lincoln Southwest","c":"A","f":"11-man","w":6,"l":4,"o":6.93,"d":4.83,"zp":0.5165,"zr":0.6156,"rs":-0.72,"ev":""},{"id":"NE-lincoln-northeast","n":"Lincoln Northeast","c":"A","f":"11-man","w":8,"l":2,"o":6.58,"d":3.85,"zp":0.4581,"zr":0.6029,"rs":-0.76,"ev":""},{"id":"NE-columbus","n":"Columbus","c":"A","f":"11-man","w":5,"l":5,"o":9.28,"d":0.1,"zp":0.4122,"zr":0.4395,"rs":-1.23,"ev":""},{"id":"NE-syracuse","n":"Syracuse","c":"C1","f":"11-man","w":8,"l":2,"o":3.6,"d":8.69,"zp":0.5402,"zr":0.8834,"rs":0.04,"ev":""},{"id":"NE-scotus-central-catholic","n":"Scotus Central Catholic","c":"C2","f":"11-man","w":6,"l":4,"o":3.49,"d":7.15,"zp":0.4678,"zr":0.5541,"rs":-0.9,"ev":""},{"id":"NE-columbus-lakeview","n":"Columbus Lakeview","c":"C1","f":"11-man","w":4,"l":5,"o":6.74,"d":1.57,"zp":0.3648,"zr":-0.333,"rs":-3.43,"ev":""},{"id":"NE-oneill","n":"ONeill","c":"C1","f":"11-man","w":6,"l":4,"o":-2.23,"d":9.31,"zp":0.3108,"zr":0.1606,"rs":-2.02,"ev":""},{"id":"NE-millard-west","n":"Millard West","c":"A","f":"11-man","w":5,"l":5,"o":-0.88,"d":10.66,"zp":0.4298,"zr":0.7034,"rs":-0.47,"ev":""},{"id":"NE-plainview-osmond","n":"Plainview/Osmond","c":"C2","f":"11-man","w":5,"l":4,"o":-0.97,"d":9.91,"zp":0.3928,"zr":-0.0594,"rs":-2.65,"ev":""},{"id":"NE-mount-michael-benedictine","n":"Mount Michael Benedictine","c":"C1","f":"11-man","w":4,"l":5,"o":-0.64,"d":8.36,"zp":0.3393,"zr":-0.2908,"rs":-3.31,"ev":""},{"id":"NE-lincoln-christian","n":"Lincoln Christian","c":"C1","f":"11-man","w":8,"l":2,"o":4.07,"d":4.27,"zp":0.3667,"zr":0.5369,"rs":-0.95,"ev":""},{"id":"NE-omaha-roncalli-catholic","n":"Omaha Roncalli Catholic","c":"C1","f":"11-man","w":7,"l":3,"o":6.64,"d":1.18,"zp":0.3439,"zr":0.7023,"rs":-0.48,"ev":""},{"id":"NE-lincoln-southeast","n":"Lincoln Southeast","c":"A","f":"11-man","w":4,"l":5,"o":2.89,"d":4.34,"zp":0.3175,"zr":-0.1673,"rs":-2.96,"ev":""},{"id":"NE-cozad","n":"Cozad","c":"C1","f":"11-man","w":5,"l":5,"o":2.25,"d":7.28,"zp":0.4186,"zr":0.0675,"rs":-2.29,"ev":""},{"id":"NE-mitchell","n":"Mitchell","c":"C2","f":"11-man","w":6,"l":4,"o":4.57,"d":0.32,"zp":0.2148,"zr":0.3479,"rs":-1.49,"ev":""},{"id":"NE-minden","n":"Minden","c":"C1","f":"11-man","w":8,"l":2,"o":-1.1,"d":5.82,"zp":0.2074,"zr":0.4423,"rs":-1.22,"ev":""},{"id":"NE-omaha-gross-catholic","n":"Omaha Gross Catholic","c":"B","f":"11-man","w":2,"l":8,"o":-5.13,"d":10.0,"zp":0.2141,"zr":-0.0826,"rs":-2.72,"ev":""},{"id":"NE-ralston","n":"Ralston","c":"B","f":"11-man","w":4,"l":6,"o":3.82,"d":-0.04,"zp":0.1657,"zr":0.2477,"rs":-1.77,"ev":""},{"id":"NE-york","n":"York","c":"B","f":"11-man","w":4,"l":6,"o":-2.3,"d":6.59,"zp":0.1886,"zr":0.336,"rs":-1.52,"ev":""},{"id":"NE-alliance","n":"Alliance","c":"C1","f":"11-man","w":5,"l":5,"o":0.9,"d":3.83,"zp":0.2081,"zr":0.0202,"rs":-2.42,"ev":""},{"id":"NE-adams-central","n":"Adams Central","c":"C1","f":"11-man","w":9,"l":1,"o":-3.75,"d":8.13,"zp":0.1926,"zr":0.9048,"rs":0.1,"ev":""},{"id":"NE-bellevue-west","n":"Bellevue West","c":"A","f":"11-man","w":4,"l":5,"o":1.54,"d":1.18,"zp":0.1194,"zr":0.0399,"rs":-2.37,"ev":""},{"id":"NE-logan-view","n":"Logan View","c":"C2","f":"11-man","w":3,"l":6,"o":1.59,"d":0.81,"zp":0.1054,"zr":-0.5388,"rs":-4.02,"ev":""},{"id":"NE-lincoln-standing-bear","n":"Lincoln Standing Bear","c":"A","f":"11-man","w":5,"l":5,"o":-4.13,"d":5.01,"zp":0.0387,"zr":0.328,"rs":-1.54,"ev":""},{"id":"NE-omaha-westview","n":"Omaha Westview","c":"A","f":"11-man","w":3,"l":6,"o":4.8,"d":-3.03,"zp":0.0777,"zr":-0.2055,"rs":-3.07,"ev":""},{"id":"NE-lincoln-east","n":"Lincoln East","c":"A","f":"11-man","w":1,"l":8,"o":-2.5,"d":2.92,"zp":0.0185,"zr":-0.9101,"rs":-5.08,"ev":""},{"id":"NE-lincoln-pius-x","n":"Lincoln Pius X","c":"B","f":"11-man","w":2,"l":8,"o":-1.8,"d":2.88,"zp":0.0471,"zr":-0.1115,"rs":-2.8,"ev":""},{"id":"NE-seward","n":"Seward","c":"B","f":"11-man","w":1,"l":8,"o":-2.78,"d":2.83,"zp":0.0021,"zr":-0.3808,"rs":-3.57,"ev":""},{"id":"NE-lincoln-north-star","n":"Lincoln North Star","c":"A","f":"11-man","w":5,"l":4,"o":2.33,"d":-3.52,"zp":-0.0522,"zr":0.1819,"rs":-1.96,"ev":""},{"id":"NE-auburn","n":"Auburn","c":"C1","f":"11-man","w":5,"l":5,"o":-0.98,"d":-1.4,"zp":-0.1047,"zr":0.1255,"rs":-2.12,"ev":""},{"id":"NE-central-city","n":"Central City","c":"C1","f":"11-man","w":4,"l":6,"o":-0.37,"d":-3.86,"zp":-0.1856,"zr":-0.2192,"rs":-3.11,"ev":""},{"id":"NE-mccook","n":"McCook","c":"B","f":"11-man","w":4,"l":6,"o":-4.36,"d":5.15,"zp":0.035,"zr":-0.0393,"rs":-2.59,"ev":""},{"id":"NE-plattsmouth","n":"Plattsmouth","c":"B","f":"11-man","w":1,"l":8,"o":-3.04,"d":-0.03,"zp":-0.1351,"zr":-0.5628,"rs":-4.09,"ev":""},{"id":"NE-west-point-beemer","n":"West Point-Beemer","c":"C2","f":"11-man","w":5,"l":5,"o":0.73,"d":-3.63,"zp":-0.1275,"zr":0.2497,"rs":-1.77,"ev":""},{"id":"NE-hershey","n":"Hershey","c":"C2","f":"11-man","w":5,"l":5,"o":-2.62,"d":-0.62,"zp":-0.1421,"zr":0.0986,"rs":-2.2,"ev":""},{"id":"NE-st-paul","n":"St. Paul","c":"C2","f":"11-man","w":4,"l":5,"o":1.69,"d":-6.08,"zp":-0.1929,"zr":-0.0171,"rs":-2.53,"ev":""},{"id":"NE-fillmore-central","n":"Fillmore Central","c":"C2","f":"11-man","w":6,"l":4,"o":-1.06,"d":-1.76,"zp":-0.1238,"zr":0.263,"rs":-1.73,"ev":""},{"id":"NE-crete","n":"Crete","c":"B","f":"11-man","w":4,"l":5,"o":-6.07,"d":1.02,"zp":-0.2222,"zr":-0.4405,"rs":-3.74,"ev":""},{"id":"NE-norfolk-catholic","n":"Norfolk Catholic","c":"C2","f":"11-man","w":3,"l":6,"o":-7.18,"d":2.03,"zp":-0.2264,"zr":-0.0965,"rs":-2.76,"ev":""},{"id":"NE-lincoln-lutheran","n":"Lincoln Lutheran","c":"C2","f":"11-man","w":5,"l":5,"o":-0.88,"d":-6.61,"zp":-0.3294,"zr":-0.0327,"rs":-2.57,"ev":""},{"id":"NE-north-platte","n":"North Platte","c":"A","f":"11-man","w":5,"l":4,"o":-2.83,"d":-4.39,"zp":-0.3168,"zr":-0.2675,"rs":-3.24,"ev":""},{"id":"NE-omaha-brownell-talbot","n":"Omaha Brownell Talbot","c":"C2","f":"11-man","w":4,"l":5,"o":-4.88,"d":-2.46,"zp":-0.3223,"zr":0.1509,"rs":-2.05,"ev":""},{"id":"NE-bridgeport","n":"Bridgeport","c":"C2","f":"11-man","w":4,"l":5,"o":-8.87,"d":0.7,"zp":-0.3588,"zr":-0.5799,"rs":-4.13,"ev":""},{"id":"NE-valentine","n":"Valentine","c":"C2","f":"11-man","w":3,"l":6,"o":0.26,"d":-8.57,"zp":-0.3652,"zr":-0.784,"rs":-4.72,"ev":""},{"id":"NE-norfolk","n":"Norfolk","c":"A","f":"11-man","w":2,"l":7,"o":-0.7,"d":-8.07,"zp":-0.3854,"zr":-0.6155,"rs":-4.24,"ev":""},{"id":"NE-omaha-central","n":"Omaha Central","c":"A","f":"11-man","w":4,"l":5,"o":-2.22,"d":-5.81,"zp":-0.3525,"zr":-0.0051,"rs":-2.49,"ev":""},{"id":"NE-fremont","n":"Fremont","c":"A","f":"11-man","w":3,"l":6,"o":-6.0,"d":-3.36,"zp":-0.4113,"zr":-0.2225,"rs":-3.11,"ev":""},{"id":"NE-hastings","n":"Hastings","c":"B","f":"11-man","w":2,"l":8,"o":-5.18,"d":-1.86,"zp":-0.309,"zr":-0.5487,"rs":-4.05,"ev":""},{"id":"NE-wilber-clatonia","n":"Wilber-Clatonia","c":"C2","f":"11-man","w":6,"l":4,"o":-2.0,"d":-7.8,"zp":-0.4305,"zr":0.3531,"rs":-1.47,"ev":""},{"id":"NE-fort-calhoun","n":"Fort Calhoun","c":"C1","f":"11-man","w":2,"l":7,"o":-9.72,"d":-0.81,"zp":-0.4625,"zr":-0.9629,"rs":-5.23,"ev":""},{"id":"NE-battle-creek","n":"Battle Creek","c":"C2","f":"11-man","w":2,"l":7,"o":-5.07,"d":-4.99,"zp":-0.4419,"zr":-0.5934,"rs":-4.17,"ev":""},{"id":"NE-platteview","n":"Platteview","c":"B","f":"11-man","w":6,"l":3,"o":-8.35,"d":-2.46,"zp":-0.475,"zr":0.3284,"rs":-1.54,"ev":""},{"id":"NE-concordia-omaha","n":"Concordia Omaha","c":"C1","f":"11-man","w":2,"l":7,"o":-5.86,"d":-6.0,"zp":-0.5212,"zr":-1.0248,"rs":-5.4,"ev":""},{"id":"NE-summerland","n":"Summerland","c":"C2","f":"11-man","w":2,"l":7,"o":-11.12,"d":-0.63,"zp":-0.516,"zr":-0.8743,"rs":-4.97,"ev":""},{"id":"NE-palmyra","n":"Palmyra","c":"C2","f":"11-man","w":2,"l":7,"o":-7.88,"d":-4.96,"zp":-0.5641,"zr":-0.6414,"rs":-4.31,"ev":""},{"id":"NE-arlington","n":"Arlington","c":"C1","f":"11-man","w":3,"l":6,"o":-7.57,"d":-7.7,"zp":-0.6711,"zr":-0.5034,"rs":-3.92,"ev":""},{"id":"NE-h-h","n":"H&H","c":"C2","f":"11-man","w":1,"l":8,"o":-9.57,"d":-4.36,"zp":-0.6121,"zr":-1.3142,"rs":-6.23,"ev":""},{"id":"NE-doniphan-trumbull","n":"Doniphan-Trumbull","c":"C2","f":"11-man","w":2,"l":7,"o":-9.99,"d":-4.34,"zp":-0.6296,"zr":-1.1144,"rs":-5.66,"ev":""},{"id":"NE-douglas-county-west","n":"Douglas County West","c":"C1","f":"11-man","w":3,"l":6,"o":-11.28,"d":-5.34,"zp":-0.7302,"zr":-0.743,"rs":-4.6,"ev":""},{"id":"NE-broken-bow","n":"Broken Bow","c":"C1","f":"11-man","w":3,"l":6,"o":-7.57,"d":-6.97,"zp":-0.6388,"zr":-0.648,"rs":-4.33,"ev":""},{"id":"NE-wayne","n":"Wayne","c":"C1","f":"11-man","w":1,"l":8,"o":-3.92,"d":-14.51,"zp":-0.8095,"zr":-1.3973,"rs":-6.47,"ev":""},{"id":"NE-north-bend-central","n":"North Bend Central","c":"C2","f":"11-man","w":2,"l":7,"o":-5.58,"d":-10.91,"zp":-0.7243,"zr":-0.6407,"rs":-4.31,"ev":""},{"id":"NE-holdrege","n":"Holdrege","c":"C1","f":"11-man","w":2,"l":7,"o":-11.86,"d":-5.13,"zp":-0.7463,"zr":-1.4045,"rs":-6.49,"ev":""},{"id":"NE-raymond-central","n":"Raymond Central","c":"C1","f":"11-man","w":0,"l":9,"o":-13.1,"d":-5.46,"zp":-0.8158,"zr":-1.7946,"rs":-7.6,"ev":""},{"id":"NE-beatrice","n":"Beatrice","c":"B","f":"11-man","w":1,"l":8,"o":-10.12,"d":-9.44,"zp":-0.8591,"zr":-1.5745,"rs":-6.97,"ev":""},{"id":"NE-milford","n":"Milford","c":"C1","f":"11-man","w":2,"l":7,"o":-8.03,"d":-12.37,"zp":-0.8964,"zr":-1.0338,"rs":-5.43,"ev":""},{"id":"NE-gering","n":"Gering","c":"B","f":"11-man","w":1,"l":8,"o":-10.93,"d":-9.03,"zp":-0.8765,"zr":-1.1292,"rs":-5.7,"ev":""},{"id":"NE-kearney-catholic","n":"Kearney Catholic","c":"C1","f":"11-man","w":0,"l":9,"o":-10.62,"d":-11.34,"zp":-0.9649,"zr":-1.629,"rs":-7.13,"ev":""},{"id":"NE-ogallala","n":"Ogallala","c":"C1","f":"11-man","w":0,"l":9,"o":-12.76,"d":-8.04,"zp":-0.9138,"zr":-1.5479,"rs":-6.9,"ev":""},{"id":"NE-grand-island","n":"Grand Island","c":"A","f":"11-man","w":1,"l":8,"o":-9.25,"d":-13.95,"zp":-1.0192,"zr":-1.3647,"rs":-6.37,"ev":""},{"id":"NE-lexington","n":"Lexington","c":"B","f":"11-man","w":2,"l":7,"o":-9.14,"d":-14.84,"zp":-1.0535,"zr":-1.1236,"rs":-5.69,"ev":""},{"id":"NE-chase-county","n":"Chase County","c":"C2","f":"11-man","w":2,"l":7,"o":-13.69,"d":-10.48,"zp":-1.0622,"zr":-1.1991,"rs":-5.9,"ev":""},{"id":"NE-omaha-bryan","n":"Omaha Bryan","c":"A","f":"11-man","w":4,"l":5,"o":-16.01,"d":-10.64,"zp":-1.1711,"zr":-0.4304,"rs":-3.71,"ev":""},{"id":"NE-bellevue-east","n":"Bellevue East","c":"A","f":"11-man","w":3,"l":6,"o":-7.51,"d":-21.02,"zp":-1.2534,"zr":-0.9867,"rs":-5.29,"ev":""},{"id":"NE-louisville","n":"Louisville","c":"C2","f":"11-man","w":0,"l":9,"o":-16.86,"d":-11.29,"zp":-1.2368,"zr":-1.358,"rs":-6.35,"ev":""},{"id":"NE-omaha-burke","n":"Omaha Burke","c":"A","f":"11-man","w":3,"l":6,"o":-15.96,"d":-13.52,"zp":-1.2953,"zr":-0.8363,"rs":-4.87,"ev":""},{"id":"NE-lincoln-northwest","n":"Lincoln Northwest","c":"A","f":"11-man","w":3,"l":6,"o":-11.69,"d":-19.1,"zp":-1.3527,"zr":-1.0174,"rs":-5.38,"ev":""},{"id":"NE-south-sioux-city","n":"South Sioux City","c":"A","f":"11-man","w":4,"l":5,"o":-14.23,"d":-18.68,"zp":-1.446,"zr":-0.7655,"rs":-4.66,"ev":""},{"id":"NE-wood-river","n":"Wood River","c":"C2","f":"11-man","w":0,"l":9,"o":-16.98,"d":-19.41,"zp":-1.5989,"zr":-1.57,"rs":-6.96,"ev":""},{"id":"NE-lincoln-high","n":"Lincoln High","c":"A","f":"11-man","w":1,"l":8,"o":-19.3,"d":-20.74,"zp":-1.7589,"zr":-1.72,"rs":-7.39,"ev":""},{"id":"NE-nebraska-city","n":"Nebraska City","c":"C1","f":"11-man","w":0,"l":9,"o":-15.18,"d":-28.14,"zp":-1.9031,"zr":-1.9625,"rs":-8.08,"ev":""},{"id":"NE-schuyler","n":"Schuyler","c":"C2","f":"11-man","w":0,"l":9,"o":-17.22,"d":-27.15,"zp":-1.9496,"zr":-1.6185,"rs":-7.1,"ev":""},{"id":"NE-omaha-benson","n":"Omaha Benson","c":"A","f":"11-man","w":2,"l":7,"o":-24.26,"d":-21.18,"zp":-1.9965,"zr":-1.1621,"rs":-5.79,"ev":""},{"id":"NE-omaha-south","n":"Omaha South","c":"A","f":"11-man","w":2,"l":7,"o":-21.81,"d":-28.69,"zp":-2.2185,"zr":-1.3228,"rs":-6.25,"ev":""},{"id":"NE-omaha-buena-vista","n":"Omaha Buena Vista","c":"A","f":"11-man","w":1,"l":8,"o":-30.98,"d":-37.56,"zp":-3.0114,"zr":-1.8588,"rs":-7.78,"ev":""},{"id":"NE-omaha-northwest","n":"Omaha Northwest","c":"A","f":"11-man","w":0,"l":9,"o":-33.45,"d":-40.96,"zp":-3.2692,"zr":-2.2503,"rs":-8.9,"ev":""},{"id":"NE-sandy-creek","n":"Sandy Creek","c":"D1","f":"8-man","w":9,"l":1,"o":34.78,"d":30.85,"zp":2.3084,"zr":2.2441,"rs":3.83,"ev":""},{"id":"NE-ravenna","n":"Ravenna","c":"D1","f":"8-man","w":9,"l":1,"o":34.74,"d":19.45,"zp":1.5508,"zr":1.5376,"rs":1.88,"ev":""},{"id":"NE-central-valley","n":"Central Valley","c":"D3","f":"8-man","w":9,"l":1,"o":27.38,"d":26.75,"zp":1.9088,"zr":1.8366,"rs":2.7,"ev":""},{"id":"NE-stanton","n":"Stanton","c":"D1","f":"8-man","w":9,"l":0,"o":34.86,"d":19.73,"zp":2.0316,"zr":1.7351,"rs":2.42,"ev":"Forfeit(s) in schedule: 9 of 10 games scored"},{"id":"NE-crofton","n":"Crofton","c":"D1","f":"8-man","w":9,"l":1,"o":29.03,"d":24.13,"zp":2.0187,"zr":1.5211,"rs":1.83,"ev":""},{"id":"NE-lawrence-nelson","n":"Lawrence-Nelson","c":"D3","f":"8-man","w":9,"l":0,"o":26.86,"d":18.54,"zp":1.9723,"zr":1.5506,"rs":1.91,"ev":"Forfeit(s) in schedule: 9 of 10 games scored"},{"id":"NE-johnson-brock","n":"Johnson-Brock","c":"D1","f":"8-man","w":10,"l":0,"o":29.62,"d":15.47,"zp":1.3506,"zr":1.9292,"rs":2.96,"ev":""},{"id":"NE-north-platte-st-patrick-s","n":"North Platte St. Patrick's","c":"D2","f":"8-man","w":10,"l":0,"o":22.09,"d":19.43,"zp":1.6461,"zr":1.3155,"rs":1.26,"ev":""},{"id":"NE-exeter-milligan-friend","n":"Exeter-Milligan-Friend","c":"D1","f":"8-man","w":9,"l":1,"o":16.23,"d":20.68,"zp":1.0826,"zr":1.4578,"rs":1.65,"ev":""},{"id":"NE-sutton","n":"Sutton","c":"D1","f":"8-man","w":8,"l":2,"o":14.92,"d":17.75,"zp":0.6696,"zr":1.3765,"rs":1.43,"ev":""},{"id":"NE-twin-loup","n":"Twin Loup","c":"D3","f":"8-man","w":8,"l":1,"o":13.04,"d":21.44,"zp":1.3896,"zr":1.4057,"rs":1.51,"ev":"Forfeit(s) in schedule: 9 of 10 games scored"},{"id":"NE-archangels-catholic","n":"Archangels Catholic","c":"D3","f":"8-man","w":9,"l":1,"o":16.31,"d":21.64,"zp":1.7122,"zr":1.5218,"rs":1.83,"ev":""},{"id":"NE-shelby-rising-city","n":"Shelby-Rising City","c":"D2","f":"8-man","w":10,"l":0,"o":14.18,"d":14.87,"zp":1.0109,"zr":1.5292,"rs":1.85,"ev":""},{"id":"NE-loomis","n":"Loomis","c":"D2","f":"8-man","w":10,"l":0,"o":21.15,"d":7.08,"zp":1.3356,"zr":1.2023,"rs":0.95,"ev":""},{"id":"NE-anselmo-merna","n":"Anselmo-Merna","c":"D3","f":"8-man","w":7,"l":2,"o":18.78,"d":8.49,"zp":1.4897,"zr":0.945,"rs":0.24,"ev":"Forfeit(s) in schedule: 9 of 10 games scored"},{"id":"NE-hartington-newcastle","n":"Hartington-Newcastle","c":"D1","f":"8-man","w":9,"l":1,"o":22.03,"d":5.7,"zp":0.7043,"zr":1.4238,"rs":1.56,"ev":""},{"id":"NE-pender","n":"Pender","c":"D1","f":"8-man","w":5,"l":4,"o":14.28,"d":12.91,"zp":1.165,"zr":0.6236,"rs":-0.65,"ev":""},{"id":"NE-burwell","n":"Burwell","c":"D3","f":"8-man","w":7,"l":3,"o":10.73,"d":13.32,"zp":0.8923,"zr":0.9996,"rs":0.39,"ev":""},{"id":"NE-wausa","n":"Wausa","c":"D3","f":"8-man","w":8,"l":2,"o":13.42,"d":13.42,"zp":1.2264,"zr":1.0869,"rs":0.63,"ev":""},{"id":"NE-lourdes-central-catholic","n":"Lourdes Central Catholic","c":"D2","f":"8-man","w":8,"l":2,"o":10.32,"d":14.64,"zp":1.2085,"zr":1.063,"rs":0.57,"ev":""},{"id":"NE-centura","n":"Centura","c":"D1","f":"8-man","w":7,"l":3,"o":14.28,"d":8.31,"zp":0.4764,"zr":0.8519,"rs":-0.02,"ev":""},{"id":"NE-elmwood-murdock","n":"Elmwood-Murdock","c":"D1","f":"8-man","w":6,"l":4,"o":4.81,"d":15.05,"zp":0.1905,"zr":0.7997,"rs":-0.16,"ev":""},{"id":"NE-deshler","n":"Deshler","c":"D3","f":"8-man","w":7,"l":3,"o":12.36,"d":9.08,"zp":1.0602,"zr":0.7908,"rs":-0.19,"ev":""},{"id":"NE-laurel-concord-coleridge","n":"Laurel-Concord-Coleridge","c":"D2","f":"8-man","w":9,"l":1,"o":17.5,"d":8.36,"zp":1.468,"zr":1.0327,"rs":0.48,"ev":""},{"id":"NE-st-mary-s","n":"St. Mary's","c":"D3","f":"8-man","w":5,"l":5,"o":7.69,"d":15.11,"zp":1.2551,"zr":0.4577,"rs":-1.11,"ev":""},{"id":"NE-hemingford","n":"Hemingford","c":"D2","f":"8-man","w":8,"l":2,"o":16.15,"d":4.32,"zp":1.1864,"zr":0.7108,"rs":-0.41,"ev":""},{"id":"NE-pleasanton","n":"Pleasanton","c":"D3","f":"8-man","w":7,"l":2,"o":5.61,"d":7.99,"zp":0.2879,"zr":0.7297,"rs":-0.35,"ev":"Forfeit(s) in schedule: 9 of 10 games scored"},{"id":"NE-elm-creek","n":"Elm Creek","c":"D1","f":"8-man","w":5,"l":4,"o":9.8,"d":7.69,"zp":0.6765,"zr":0.3147,"rs":-1.5,"ev":""},{"id":"NE-guardian-angels-central-catholic","n":"Guardian Angels Central Catholic","c":"D3","f":"8-man","w":8,"l":2,"o":13.97,"d":10.43,"zp":1.3749,"zr":0.8185,"rs":-0.11,"ev":""},{"id":"NE-cross-county","n":"Cross County","c":"D1","f":"8-man","w":6,"l":4,"o":6.68,"d":12.96,"zp":0.5858,"zr":0.8649,"rs":0.02,"ev":""},{"id":"NE-howells-dodge","n":"Howells-Dodge","c":"D2","f":"8-man","w":8,"l":2,"o":8.91,"d":12.61,"zp":1.3424,"zr":0.7146,"rs":-0.4,"ev":""},{"id":"NE-wynot","n":"Wynot","c":"D3","f":"8-man","w":8,"l":2,"o":4.32,"d":16.88,"zp":1.078,"zr":1.2753,"rs":1.15,"ev":""},{"id":"NE-hitchcock-county","n":"Hitchcock County","c":"D2","f":"8-man","w":6,"l":4,"o":10.03,"d":3.66,"zp":0.5458,"zr":0.3642,"rs":-1.36,"ev":""},{"id":"NE-alma","n":"Alma","c":"D1","f":"8-man","w":6,"l":4,"o":7.33,"d":6.18,"zp":0.0631,"zr":0.5957,"rs":-0.72,"ev":""},{"id":"NE-brady","n":"Brady","c":"D3","f":"8-man","w":8,"l":2,"o":10.9,"d":2.94,"zp":0.5013,"zr":0.5345,"rs":-0.89,"ev":""},{"id":"NE-east-butler","n":"East Butler","c":"D2","f":"8-man","w":6,"l":4,"o":9.65,"d":4.22,"zp":0.3599,"zr":0.3758,"rs":-1.33,"ev":""},{"id":"NE-wilcox-hildreth","n":"Wilcox-Hildreth","c":"D2","f":"8-man","w":7,"l":3,"o":5.93,"d":10.29,"zp":1.0341,"zr":0.7267,"rs":-0.36,"ev":""},{"id":"NE-neligh-oakdale","n":"Neligh-Oakdale","c":"D2","f":"8-man","w":7,"l":3,"o":19.68,"d":-3.24,"zp":1.0197,"zr":0.4351,"rs":-1.17,"ev":""},{"id":"NE-creighton","n":"Creighton","c":"D2","f":"8-man","w":7,"l":3,"o":6.76,"d":6.14,"zp":0.674,"zr":0.4022,"rs":-1.26,"ev":""},{"id":"NE-aquinas-catholic","n":"Aquinas Catholic","c":"D2","f":"8-man","w":6,"l":4,"o":3.03,"d":8.6,"zp":0.5063,"zr":0.4453,"rs":-1.14,"ev":""},{"id":"NE-bertrand","n":"Bertrand","c":"D2","f":"8-man","w":6,"l":4,"o":7.54,"d":3.21,"zp":0.5435,"zr":0.3182,"rs":-1.49,"ev":""},{"id":"NE-ponca","n":"Ponca","c":"D1","f":"8-man","w":4,"l":5,"o":12.15,"d":-0.27,"zp":-0.2462,"zr":0.6621,"rs":-0.54,"ev":"Forfeit(s) in schedule: 9 of 10 games scored"},{"id":"NE-blue-hill","n":"Blue Hill","c":"D3","f":"8-man","w":5,"l":3,"o":9.44,"d":0.26,"zp":0.3435,"zr":0.2913,"rs":-1.56,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-conestoga","n":"Conestoga","c":"D1","f":"8-man","w":4,"l":5,"o":2.86,"d":5.92,"zp":-0.1447,"zr":0.0835,"rs":-2.14,"ev":""},{"id":"NE-thayer-central","n":"Thayer Central","c":"D1","f":"8-man","w":5,"l":4,"o":6.07,"d":3.01,"zp":0.4134,"zr":0.3461,"rs":-1.41,"ev":""},{"id":"NE-elkhorn-valley","n":"Elkhorn Valley","c":"D1","f":"8-man","w":6,"l":4,"o":-0.19,"d":8.56,"zp":-0.0281,"zr":0.5692,"rs":-0.8,"ev":""},{"id":"NE-amherst","n":"Amherst","c":"D1","f":"8-man","w":5,"l":5,"o":2.77,"d":3.0,"zp":-0.5804,"zr":0.5598,"rs":-0.82,"ev":""},{"id":"NE-fullerton","n":"Fullerton","c":"D2","f":"8-man","w":5,"l":5,"o":2.88,"d":5.9,"zp":0.7054,"zr":0.1054,"rs":-2.08,"ev":""},{"id":"NE-osceola","n":"Osceola","c":"D3","f":"8-man","w":4,"l":5,"o":2.12,"d":4.88,"zp":0.3474,"zr":0.2858,"rs":-1.58,"ev":""},{"id":"NE-cambridge","n":"Cambridge","c":"D3","f":"8-man","w":6,"l":3,"o":0.48,"d":2.77,"zp":0.0352,"zr":0.3932,"rs":-1.28,"ev":"Forfeit(s) in schedule: 9 of 10 games scored"},{"id":"NE-dundy-county-stratton","n":"Dundy County Stratton","c":"D3","f":"8-man","w":6,"l":2,"o":4.58,"d":0.25,"zp":0.6506,"zr":0.6538,"rs":-0.56,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-gibbon","n":"Gibbon","c":"D1","f":"8-man","w":4,"l":5,"o":1.88,"d":-0.25,"zp":-0.4339,"zr":0.2164,"rs":-1.77,"ev":""},{"id":"NE-bds","n":"BDS","c":"D2","f":"8-man","w":6,"l":4,"o":-8.87,"d":8.97,"zp":0.1639,"zr":0.182,"rs":-1.87,"ev":""},{"id":"NE-southern-valley","n":"Southern Valley","c":"D3","f":"8-man","w":4,"l":4,"o":2.47,"d":-1.34,"zp":-0.3602,"zr":-0.1769,"rs":-2.86,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-falls-city-sacred-heart","n":"Falls City Sacred Heart","c":"D3","f":"8-man","w":6,"l":4,"o":-1.41,"d":5.69,"zp":-0.0569,"zr":0.6164,"rs":-0.67,"ev":""},{"id":"NE-nebraska-christian","n":"Nebraska Christian","c":"D1","f":"8-man","w":6,"l":3,"o":1.27,"d":0.16,"zp":-0.0554,"zr":0.4836,"rs":-1.03,"ev":""},{"id":"NE-boyd-county","n":"Boyd County","c":"D3","f":"8-man","w":5,"l":4,"o":1.64,"d":1.06,"zp":-0.1834,"zr":0.0279,"rs":-2.29,"ev":""},{"id":"NE-wisner-pilger","n":"Wisner-Pilger","c":"D1","f":"8-man","w":7,"l":3,"o":-2.4,"d":6.54,"zp":-0.1065,"zr":0.8268,"rs":-0.09,"ev":""},{"id":"NE-arcadia-loup-city","n":"Arcadia/Loup City","c":"D1","f":"8-man","w":1,"l":8,"o":-9.62,"d":8.79,"zp":-0.4539,"zr":-0.7626,"rs":-4.47,"ev":""},{"id":"NE-tri-county","n":"Tri County","c":"D1","f":"8-man","w":6,"l":3,"o":-0.35,"d":-0.04,"zp":0.0465,"zr":0.3574,"rs":-1.38,"ev":""},{"id":"NE-west-holt","n":"West Holt","c":"D1","f":"8-man","w":5,"l":4,"o":0.37,"d":-0.51,"zp":-0.3073,"zr":0.2711,"rs":-1.62,"ev":""},{"id":"NE-hastings-st-cecilia","n":"Hastings St. Cecilia","c":"D1","f":"8-man","w":2,"l":7,"o":1.11,"d":-4.82,"zp":-0.6621,"zr":-0.4006,"rs":-3.47,"ev":""},{"id":"NE-leigh","n":"Leigh","c":"D3","f":"8-man","w":6,"l":3,"o":-5.71,"d":4.82,"zp":0.1594,"zr":0.3616,"rs":-1.37,"ev":""},{"id":"NE-arapahoe","n":"Arapahoe","c":"D2","f":"8-man","w":3,"l":5,"o":-4.5,"d":0.03,"zp":-0.3346,"zr":-0.3468,"rs":-3.33,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-south-loup","n":"South Loup","c":"D2","f":"8-man","w":4,"l":5,"o":-6.55,"d":1.69,"zp":-0.2109,"zr":0.0103,"rs":-2.34,"ev":""},{"id":"NE-freeman","n":"Freeman","c":"D1","f":"8-man","w":3,"l":6,"o":-4.94,"d":-0.04,"zp":-0.5858,"zr":-0.4402,"rs":-3.58,"ev":""},{"id":"NE-tekamah-herman","n":"Tekamah-Herman","c":"D1","f":"8-man","w":3,"l":6,"o":-3.99,"d":-0.26,"zp":-0.3759,"zr":-0.6879,"rs":-4.27,"ev":""},{"id":"NE-clarkson","n":"Clarkson","c":"D3","f":"8-man","w":5,"l":4,"o":-9.01,"d":5.65,"zp":0.3239,"zr":0.0042,"rs":-2.36,"ev":""},{"id":"NE-bloomfield","n":"Bloomfield","c":"D2","f":"8-man","w":3,"l":6,"o":-13.4,"d":9.5,"zp":0.0915,"zr":-0.1346,"rs":-2.74,"ev":""},{"id":"NE-johnson-county-central","n":"Johnson County Central","c":"D1","f":"8-man","w":2,"l":7,"o":-0.65,"d":-5.49,"zp":-0.0829,"zr":-0.9344,"rs":-4.95,"ev":""},{"id":"NE-centennial","n":"Centennial","c":"D1","f":"8-man","w":4,"l":5,"o":-4.11,"d":-3.06,"zp":-0.7737,"zr":-0.0919,"rs":-2.62,"ev":""},{"id":"NE-randolph","n":"Randolph","c":"D3","f":"8-man","w":3,"l":6,"o":-3.45,"d":-0.78,"zp":-0.322,"zr":-0.4677,"rs":-3.66,"ev":""},{"id":"NE-kimball","n":"Kimball","c":"D1","f":"8-man","w":3,"l":6,"o":-7.55,"d":-0.57,"zp":-0.9898,"zr":-0.6481,"rs":-4.16,"ev":""},{"id":"NE-elgin-public-pope-john","n":"Elgin Public-Pope John","c":"D3","f":"8-man","w":3,"l":6,"o":-4.25,"d":-3.38,"zp":-0.4197,"zr":-0.0802,"rs":-2.59,"ev":""},{"id":"NE-superior","n":"Superior","c":"D2","f":"8-man","w":4,"l":5,"o":-2.96,"d":-7.1,"zp":-0.4554,"zr":-0.3509,"rs":-3.34,"ev":""},{"id":"NE-tri-county-northeast-tcne","n":"Tri County Northeast (TCNE)","c":"D2","f":"8-man","w":4,"l":4,"o":-5.25,"d":-2.68,"zp":0.2751,"zr":-0.0854,"rs":-2.6,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-weeping-water","n":"Weeping Water","c":"D3","f":"8-man","w":3,"l":5,"o":-7.09,"d":-4.29,"zp":-0.5656,"zr":-0.365,"rs":-3.38,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-sandhills-thedford","n":"Sandhills/Thedford","c":"D3","f":"8-man","w":5,"l":4,"o":-6.33,"d":-7.5,"zp":-0.245,"zr":-0.0592,"rs":-2.53,"ev":""},{"id":"NE-mullen","n":"Mullen","c":"D3","f":"8-man","w":3,"l":6,"o":-8.01,"d":-6.89,"zp":-0.4155,"zr":-0.6791,"rs":-4.24,"ev":""},{"id":"NE-cwc","n":"CWC","c":"D3","f":"8-man","w":3,"l":6,"o":-12.4,"d":-4.67,"zp":-0.7039,"zr":-0.198,"rs":-2.92,"ev":""},{"id":"NE-maxwell","n":"Maxwell","c":"D3","f":"8-man","w":3,"l":6,"o":-5.63,"d":-13.3,"zp":-0.513,"zr":-0.8795,"rs":-4.8,"ev":""},{"id":"NE-david-city","n":"David City","c":"D1","f":"8-man","w":2,"l":7,"o":-9.55,"d":-7.19,"zp":-0.711,"zr":-0.5368,"rs":-3.85,"ev":""},{"id":"NE-falls-city","n":"Falls City","c":"D1","f":"8-man","w":2,"l":7,"o":-7.77,"d":-10.15,"zp":-1.0602,"zr":-0.9218,"rs":-4.91,"ev":""},{"id":"NE-shelton","n":"Shelton","c":"D2","f":"8-man","w":2,"l":7,"o":-9.4,"d":-10.55,"zp":-0.4746,"zr":-1.3091,"rs":-5.98,"ev":""},{"id":"NE-humphrey-lindsay","n":"Humphrey-Lindsay","c":"D2","f":"8-man","w":2,"l":7,"o":-12.23,"d":-6.06,"zp":-0.4162,"zr":-0.6564,"rs":-4.18,"ev":""},{"id":"NE-homer","n":"Homer","c":"D1","f":"8-man","w":1,"l":5,"o":-8.88,"d":-8.7,"zp":-0.5866,"zr":-1.0154,"rs":-5.17,"ev":"Forfeit(s) in schedule: 6 of 9 games scored"},{"id":"NE-kenesaw","n":"Kenesaw","c":"D2","f":"8-man","w":2,"l":7,"o":-9.78,"d":-10.42,"zp":-0.5514,"zr":-0.8974,"rs":-4.85,"ev":""},{"id":"NE-wauneta-palisade","n":"Wauneta-Palisade","c":"D3","f":"8-man","w":4,"l":5,"o":-18.12,"d":-2.72,"zp":-0.5659,"zr":-0.7426,"rs":-4.42,"ev":""},{"id":"NE-maywood-hayes-center","n":"Maywood-Hayes Center","c":"D2","f":"8-man","w":3,"l":6,"o":-21.16,"d":0.19,"zp":-0.8328,"zr":-0.437,"rs":-3.58,"ev":""},{"id":"NE-oakland-craig","n":"Oakland-Craig","c":"D2","f":"8-man","w":4,"l":5,"o":-2.51,"d":-17.43,"zp":-0.3539,"zr":-0.4359,"rs":-3.57,"ev":""},{"id":"NE-winside","n":"Winside","c":"D3","f":"8-man","w":2,"l":7,"o":-12.86,"d":-6.11,"zp":-0.4872,"zr":-0.7069,"rs":-4.32,"ev":""},{"id":"NE-lutheran-high-northeast","n":"Lutheran High Northeast","c":"D1","f":"8-man","w":1,"l":8,"o":-13.69,"d":-8.18,"zp":-1.1993,"zr":-0.8837,"rs":-4.81,"ev":""},{"id":"NE-niobrara-verdigre","n":"Niobrara-Verdigre","c":"D2","f":"8-man","w":2,"l":7,"o":-11.86,"d":-10.92,"zp":-0.8039,"zr":-0.9871,"rs":-5.09,"ev":""},{"id":"NE-hi-line","n":"Hi-Line","c":"D2","f":"8-man","w":2,"l":7,"o":-17.8,"d":-7.59,"zp":-0.8835,"zr":-0.8567,"rs":-4.73,"ev":""},{"id":"NE-gordon-rushville","n":"Gordon-Rushville","c":"D1","f":"8-man","w":2,"l":7,"o":-4.32,"d":-20.2,"zp":-1.0758,"zr":-0.4931,"rs":-3.73,"ev":""},{"id":"NE-hyannis","n":"Hyannis","c":"D3","f":"8-man","w":3,"l":6,"o":-7.84,"d":-18.23,"zp":-0.4941,"zr":-0.813,"rs":-4.61,"ev":""},{"id":"NE-perkins-county","n":"Perkins County","c":"D2","f":"8-man","w":2,"l":7,"o":-13.76,"d":-13.47,"zp":-0.4342,"zr":-0.7592,"rs":-4.46,"ev":""},{"id":"NE-north-central","n":"North Central","c":"D3","f":"8-man","w":1,"l":8,"o":-12.58,"d":-12.54,"zp":-1.0529,"zr":-1.1037,"rs":-5.42,"ev":""},{"id":"NE-franklin","n":"Franklin","c":"D2","f":"8-man","w":1,"l":7,"o":-2.97,"d":-25.17,"zp":-1.0189,"zr":-1.4214,"rs":-6.29,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-omaha-christian","n":"Omaha Christian","c":"D2","f":"8-man","w":2,"l":7,"o":-13.72,"d":-12.65,"zp":-0.9803,"zr":-0.9769,"rs":-5.07,"ev":""},{"id":"NE-lyons-decatur-northeast","n":"Lyons-Decatur Northeast","c":"D2","f":"8-man","w":2,"l":7,"o":-17.49,"d":-8.15,"zp":-0.7658,"zr":-1.0794,"rs":-5.35,"ev":""},{"id":"NE-ainsworth","n":"Ainsworth","c":"D2","f":"8-man","w":3,"l":6,"o":-19.69,"d":-8.4,"zp":-0.9432,"zr":-0.8234,"rs":-4.64,"ev":""},{"id":"NE-overton","n":"Overton","c":"D3","f":"8-man","w":0,"l":4,"o":-21.12,"d":-10.56,"zp":-0.5421,"zr":-1.3067,"rs":-5.98,"ev":"Forfeit(s) in schedule: 4 of 9 games scored"},{"id":"NE-palmer","n":"Palmer","c":"D3","f":"8-man","w":0,"l":9,"o":-17.75,"d":-12.92,"zp":-1.0913,"zr":-1.3816,"rs":-6.18,"ev":""},{"id":"NE-twin-river","n":"Twin River","c":"D1","f":"8-man","w":1,"l":8,"o":-12.81,"d":-18.32,"zp":-1.4023,"zr":-1.1543,"rs":-5.55,"ev":""},{"id":"NE-southern","n":"Southern","c":"D3","f":"8-man","w":0,"l":9,"o":-11.55,"d":-20.4,"zp":-1.4553,"zr":-1.6506,"rs":-6.92,"ev":""},{"id":"NE-bayard","n":"Bayard","c":"D3","f":"8-man","w":3,"l":6,"o":-28.98,"d":-3.98,"zp":-1.3178,"zr":-1.0838,"rs":-5.36,"ev":""},{"id":"NE-fairbury","n":"Fairbury","c":"D1","f":"8-man","w":0,"l":9,"o":-12.36,"d":-22.63,"zp":-1.4707,"zr":-1.4353,"rs":-6.33,"ev":""},{"id":"NE-axtell","n":"Axtell","c":"D3","f":"8-man","w":1,"l":8,"o":-20.17,"d":-20.02,"zp":-1.41,"zr":-1.4852,"rs":-6.47,"ev":""},{"id":"NE-sandhills-valley","n":"Sandhills Valley","c":"D3","f":"8-man","w":0,"l":8,"o":-16.03,"d":-25.6,"zp":-1.2917,"zr":-1.9275,"rs":-7.69,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-newman-grove-st-edward","n":"Newman Grove/St. Edward","c":"D2","f":"8-man","w":1,"l":8,"o":-15.22,"d":-26.21,"zp":-1.4786,"zr":-1.7186,"rs":-7.11,"ev":""},{"id":"NE-wakefield","n":"Wakefield","c":"D1","f":"8-man","w":1,"l":8,"o":-21.13,"d":-18.9,"zp":-1.6711,"zr":-1.2559,"rs":-5.84,"ev":""},{"id":"NE-sutherland","n":"Sutherland","c":"D3","f":"8-man","w":0,"l":9,"o":-22.69,"d":-25.95,"zp":-1.8353,"zr":-2.1776,"rs":-8.38,"ev":""},{"id":"NE-cedar-bluffs","n":"Cedar Bluffs","c":"D1","f":"8-man","w":1,"l":8,"o":-24.16,"d":-23.11,"zp":-2.1718,"zr":-1.5784,"rs":-6.73,"ev":""},{"id":"NE-bancroft-rosalie","n":"Bancroft-Rosalie","c":"D2","f":"8-man","w":1,"l":8,"o":-23.64,"d":-24.65,"zp":-1.5822,"zr":-1.4699,"rs":-6.43,"ev":""},{"id":"NE-madison","n":"Madison","c":"D2","f":"8-man","w":0,"l":9,"o":-24.79,"d":-27.95,"zp":-1.744,"zr":-2.093,"rs":-8.15,"ev":""},{"id":"NE-omaha-nation","n":"Omaha Nation","c":"D3","f":"8-man","w":0,"l":9,"o":-25.18,"d":-27.08,"zp":-1.6914,"zr":-1.808,"rs":-7.36,"ev":""},{"id":"NE-garden-county","n":"Garden County","c":"D6","f":"6-man","w":7,"l":1,"o":19.2,"d":34.49,"zp":1.6857,"zr":1.3391,"rs":1.06,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-wallace","n":"Wallace","c":"D6","f":"6-man","w":8,"l":1,"o":19.51,"d":25.98,"zp":1.4281,"zr":1.7839,"rs":2.32,"ev":""},{"id":"NE-medicine-valley","n":"Medicine Valley","c":"D6","f":"6-man","w":8,"l":1,"o":34.62,"d":11.24,"zp":1.4397,"zr":1.5312,"rs":1.6,"ev":""},{"id":"NE-arthur-county","n":"Arthur County","c":"D6","f":"6-man","w":6,"l":3,"o":19.49,"d":19.06,"zp":1.2103,"zr":0.9846,"rs":0.05,"ev":""},{"id":"NE-riverside","n":"Riverside","c":"D6","f":"6-man","w":6,"l":2,"o":25.7,"d":11.41,"zp":1.1648,"zr":0.6937,"rs":-0.78,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-stuart","n":"Stuart","c":"D6","f":"6-man","w":7,"l":0,"o":20.03,"d":20.08,"zp":1.2589,"zr":1.3558,"rs":1.1,"ev":"Forfeit(s) in schedule: 7 of 9 games scored"},{"id":"NE-southwest","n":"Southwest","c":"D6","f":"6-man","w":6,"l":3,"o":15.86,"d":22.11,"zp":1.192,"zr":1.4538,"rs":1.38,"ev":""},{"id":"NE-red-cloud","n":"Red Cloud","c":"D6","f":"6-man","w":8,"l":1,"o":15.13,"d":19.81,"zp":1.0967,"zr":1.1495,"rs":0.52,"ev":""},{"id":"NE-diller-odell","n":"Diller-Odell","c":"D6","f":"6-man","w":7,"l":1,"o":4.63,"d":29.07,"zp":1.0578,"zr":1.033,"rs":0.18,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-lewiston","n":"Lewiston","c":"D6","f":"6-man","w":5,"l":3,"o":10.91,"d":15.5,"zp":0.8292,"zr":0.4708,"rs":-1.42,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-leyton","n":"Leyton","c":"D6","f":"6-man","w":7,"l":1,"o":20.87,"d":8.93,"zp":0.9355,"zr":1.2155,"rs":0.7,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-mccool-junction","n":"McCool Junction","c":"D6","f":"6-man","w":8,"l":0,"o":11.69,"d":11.66,"zp":0.7328,"zr":1.0642,"rs":0.27,"ev":""},{"id":"NE-sumner-eddyville-miller","n":"Sumner-Eddyville-Miller","c":"D6","f":"6-man","w":3,"l":5,"o":9.58,"d":6.78,"zp":0.5137,"zr":0.3311,"rs":-1.81,"ev":""},{"id":"NE-high-plains-community","n":"High Plains Community","c":"D6","f":"6-man","w":5,"l":4,"o":5.8,"d":9.3,"zp":0.4743,"zr":0.3023,"rs":-1.89,"ev":""},{"id":"NE-potter-dix","n":"Potter-Dix","c":"D6","f":"6-man","w":3,"l":4,"o":17.28,"d":-6.94,"zp":0.3247,"zr":0.3671,"rs":-1.71,"ev":"Forfeit(s) in schedule: 7 of 8 games scored"},{"id":"NE-hay-springs","n":"Hay Springs","c":"D6","f":"6-man","w":4,"l":4,"o":9.21,"d":-2.34,"zp":0.2156,"zr":0.578,"rs":-1.11,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-sterling","n":"Sterling","c":"D6","f":"6-man","w":5,"l":4,"o":-0.87,"d":6.31,"zp":0.1709,"zr":0.2799,"rs":-1.96,"ev":""},{"id":"NE-mead","n":"Mead","c":"D6","f":"6-man","w":4,"l":3,"o":13.94,"d":-7.6,"zp":0.1989,"zr":0.2473,"rs":-2.05,"ev":"Forfeit(s) in schedule: 7 of 8 games scored"},{"id":"NE-meridian","n":"Meridian","c":"D6","f":"6-man","w":4,"l":4,"o":6.43,"d":-0.44,"zp":0.1881,"zr":0.3022,"rs":-1.89,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-crawford","n":"Crawford","c":"D6","f":"6-man","w":4,"l":4,"o":-4.09,"d":7.83,"zp":0.1174,"zr":0.203,"rs":-2.18,"ev":"Forfeit(s) in schedule: 8 of 9 games scored"},{"id":"NE-south-platte","n":"South Platte","c":"D6","f":"6-man","w":3,"l":5,"o":5.88,"d":-1.57,"zp":0.1352,"zr":0.1482,"rs":-2.33,"ev":""},{"id":"NE-grand-island-lutheran","n":"Grand Island Lutheran","c":"D6","f":"6-man","w":4,"l":4,"o":5.23,"d":-2.4,"zp":0.0888,"zr":0.0561,"rs":-2.6,"ev":""},{"id":"NE-silver-lake","n":"Silver Lake","c":"D6","f":"6-man","w":3,"l":5,"o":-5.05,"d":7.06,"zp":0.0632,"zr":-0.1654,"rs":-3.23,"ev":""},{"id":"NE-cody-kilgore","n":"Cody-Kilgore","c":"D6","f":"6-man","w":3,"l":4,"o":2.49,"d":-1.95,"zp":0.0171,"zr":-0.0409,"rs":-2.87,"ev":"Forfeit(s) in schedule: 7 of 8 games scored"},{"id":"NE-giltner","n":"Giltner","c":"D6","f":"6-man","w":3,"l":5,"o":7.39,"d":-5.94,"zp":0.0454,"zr":-0.3843,"rs":-3.85,"ev":""},{"id":"NE-parkview-christian","n":"Parkview Christian","c":"D6","f":"6-man","w":4,"l":4,"o":-8.25,"d":-0.75,"zp":-0.2824,"zr":-0.3935,"rs":-3.87,"ev":""},{"id":"NE-paxton","n":"Paxton","c":"D6","f":"6-man","w":2,"l":6,"o":-5.06,"d":-4.31,"zp":-0.2942,"zr":-0.2344,"rs":-3.42,"ev":""},{"id":"NE-dorchester","n":"Dorchester","c":"D6","f":"6-man","w":3,"l":5,"o":-8.52,"d":-3.18,"zp":-0.3674,"zr":-0.7011,"rs":-4.75,"ev":""},{"id":"NE-ansley-litchfield","n":"Ansley-Litchfield","c":"D6","f":"6-man","w":2,"l":6,"o":-8.42,"d":-4.15,"zp":-0.3946,"zr":-0.4958,"rs":-4.17,"ev":""},{"id":"NE-elba","n":"Elba","c":"D6","f":"6-man","w":2,"l":4,"o":-12.39,"d":-7.77,"zp":-0.6331,"zr":-0.4046,"rs":-3.91,"ev":"Forfeit(s) in schedule: 6 of 8 games scored"},{"id":"NE-morrill","n":"Morrill","c":"D6","f":"6-man","w":3,"l":4,"o":-17.71,"d":-4.42,"zp":-0.6946,"zr":-0.4903,"rs":-4.15,"ev":"Forfeit(s) in schedule: 7 of 8 games scored"},{"id":"NE-sioux-county","n":"Sioux County","c":"D6","f":"6-man","w":0,"l":2,"o":-22.78,"d":-0.43,"zp":-0.7286,"zr":-1.9494,"rs":-8.3,"ev":"Limited: only 2 of 8 games scored (rating leans on shrinkage)"},{"id":"NE-pawnee-city","n":"Pawnee City","c":"D6","f":"6-man","w":1,"l":7,"o":-21.19,"d":-6.92,"zp":-0.8824,"zr":-1.0812,"rs":-5.83,"ev":""},{"id":"NE-creek-valley","n":"Creek Valley","c":"D6","f":"6-man","w":1,"l":7,"o":-16.17,"d":-23.02,"zp":-1.2301,"zr":-1.1915,"rs":-6.15,"ev":""},{"id":"NE-nebraska-lutheran","n":"Nebraska Lutheran","c":"D6","f":"6-man","w":1,"l":7,"o":-16.12,"d":-24.19,"zp":-1.2656,"zr":-1.3195,"rs":-6.51,"ev":""},{"id":"NE-harvard","n":"Harvard","c":"D6","f":"6-man","w":2,"l":6,"o":-20.65,"d":-21.79,"zp":-1.3322,"zr":-1.0563,"rs":-5.76,"ev":""},{"id":"NE-minatare","n":"Minatare","c":"D6","f":"6-man","w":2,"l":5,"o":-24.23,"d":-21.81,"zp":-1.4454,"zr":-0.9203,"rs":-5.37,"ev":"Forfeit(s) in schedule: 7 of 8 games scored"},{"id":"NE-humboldt-table-rock-steinauer","n":"Humboldt-Table Rock-Steinauer","c":"D6","f":"6-man","w":0,"l":4,"o":-22.51,"d":-31.45,"zp":-1.6937,"zr":-1.7711,"rs":-7.8,"ev":"Forfeit(s) in schedule: 4 of 8 games scored"},{"id":"NE-santee","n":"Santee","c":"D6","f":"6-man","w":1,"l":5,"o":-32.26,"d":-23.69,"zp":-1.7564,"zr":-1.2661,"rs":-6.36,"ev":"Forfeit(s) in schedule: 6 of 8 games scored"},{"id":"NE-banner-county","n":"Banner County","c":"D6","f":"6-man","w":0,"l":4,"o":-14.3,"d":-42.3,"zp":-1.777,"zr":-1.2322,"rs":-6.26,"ev":"Forfeit(s) in schedule: 4 of 8 games scored"},{"id":"NE-scribner-snyder","n":"Scribner-Snyder","c":"D6","f":"6-man","w":0,"l":7,"o":-29.69,"d":-27.88,"zp":-1.8073,"zr":-1.7923,"rs":-7.86,"ev":"Forfeit(s) in schedule: 7 of 8 games scored"}],"params":{"11-man":{"mu":23.943,"H":1.2,"s":7.642,"sd":16.6,"c0":26.344,"c1":0.3414,"c2":0.2878,"q10":-22.9,"q25":-11.3,"q75":10.7,"q90":21.1,"lump":[3.0,0.35,0.35,0.45,0.35,0.35,1.98,3.0,0.56,0.35,0.8,0.35,0.76,1.28,3.0,0.36,0.43,0.69,0.36,0.63,1.93,2.21,0.62,0.4,0.97,0.5,0.76,1.55,1.99,0.62,0.7,0.93,0.35,0.63,1.42,2.81,0.59,0.45,0.53,0.39,0.74,1.24,3.0,0.48,0.54,0.71,0.56,0.97,1.27,2.38,0.53,0.72,0.41,0.52,1.1,1.34,2.18,0.67,0.64,0.43,0.76,0.92,1.08,2.81,0.47,0.71,0.35,0.49,0.35,1.47,1.79,1.14,1.47,0.51,0.64,0.35,2.13,1.0,1.84,0.35,0.47,0.47,1.91,0.64,1.91,0.64,0.78,0.78,1.0,1.0,1.0],"sm":7.9,"st":7.13},"8-man":{"mu":33.457,"H":0.933,"s":9.539,"sd":21.43,"c0":37.208,"c1":0.3206,"c2":0.2895,"q10":-26.2,"q25":-13.4,"q75":14.9,"q90":26.5,"lump":[3.0,0.35,0.35,0.35,0.35,0.35,3.0,0.35,2.86,0.35,0.35,0.35,2.75,0.35,2.98,0.35,1.56,0.35,1.53,0.35,2.82,0.35,2.18,0.35,1.54,0.35,2.25,0.35,2.38,0.35,2.31,0.35,1.26,0.35,2.06,0.44,2.3,0.35,1.83,0.35,1.58,0.35,2.29,0.35,1.86,0.35,1.78,0.35,1.67,0.52,1.78,0.35,1.86,0.35,1.95,0.4,1.9,0.36,1.88,0.36,1.26,0.35,2.35,0.55,1.48,0.35,2.05,0.35,2.16,0.35,1.81,0.38,0.85,0.51,2.44,0.35,1.59,0.35,2.57,0.37,1.63,0.35,2.16,0.35,2.08,0.51,0.84,0.35,1.88,0.38,1.2],"sm":10.13,"st":9.01},"6-man":{"mu":36.427,"H":0.939,"s":11.119,"sd":24.12,"c0":22.616,"c1":0.717,"c2":-0.0397,"q10":-31.0,"q25":-18.1,"q75":16.5,"q90":32.0,"lump":[3.0,0.35,0.35,0.35,0.35,0.35,3.0,1.23,1.23,0.35,0.35,0.35,2.9,1.56,1.66,0.35,0.97,0.35,1.18,0.91,2.25,0.97,1.31,0.35,0.66,1.34,1.51,0.66,1.52,0.35,1.4,0.91,1.32,0.95,0.84,0.43,1.27,0.85,1.31,1.02,1.32,0.56,1.09,0.87,1.56,0.85,0.79,1.23,1.05,0.54,0.94,0.92,1.23,1.11,1.29,0.69,1.02,0.5,1.21,1.27,1.38,0.8,1.0,1.13,1.0,0.69,0.76,0.97,1.48,0.89,1.28,0.52,0.97,1.0,0.83,1.54,0.86,1.24,0.74,1.26,0.6,0.72,1.21,0.91,0.91,1.67,0.37,1.24,0.43,1.67,0.5],"sm":11.67,"st":8.84}}};
+const T = DATA.teams, PR = DATA.params;
+const BRK = {"D6":{"seeds":["NE-stuart","NE-wallace","NE-garden-county","NE-diller-odell","NE-red-cloud","NE-medicine-valley","NE-arthur-county","NE-riverside","NE-leyton","NE-southwest","NE-lewiston","NE-hay-springs","NE-sterling","NE-meridian","NE-high-plains-community","NE-crawford"],"won":["NE-stuart","NE-leyton","NE-red-cloud","NE-diller-odell","NE-garden-county","NE-medicine-valley","NE-southwest","NE-wallace"]},"D2":{"seeds":["NE-shelby-rising-city","NE-north-platte-st-patrick-s","NE-laurel-concord-coleridge","NE-loomis","NE-lourdes-central-catholic","NE-creighton","NE-howells-dodge","NE-hemingford","NE-aquinas-catholic","NE-east-butler","NE-wilcox-hildreth","NE-hitchcock-county","NE-neligh-oakdale","NE-bds","NE-bertrand","NE-fullerton"],"won":["NE-shelby-rising-city","NE-hemingford","NE-lourdes-central-catholic","NE-loomis","NE-laurel-concord-coleridge","NE-wilcox-hildreth","NE-howells-dodge","NE-north-platte-st-patrick-s"]},"A":{"seeds":["NE-omaha-westside","NE-millard-south","NE-millard-north","NE-bennington","NE-elkhorn-south","NE-omaha-north","NE-papillion-la-vista-south","NE-papillion-la-vista","NE-lincoln-northeast","NE-millard-west","NE-kearney","NE-elkhorn-north","NE-lincoln-southwest","NE-creighton-preparatory-school","NE-lincoln-standing-bear","NE-columbus"],"won":["NE-omaha-westside","NE-papillion-la-vista","NE-elkhorn-south","NE-bennington","NE-millard-north","NE-omaha-north","NE-papillion-la-vista-south","NE-millard-south"]},"D3":{"seeds":["NE-lawrence-nelson","NE-central-valley","NE-archangels-catholic","NE-pleasanton","NE-wausa","NE-dundy-county-stratton","NE-twin-loup","NE-burwell","NE-wynot","NE-deshler","NE-brady","NE-anselmo-merna","NE-guardian-angels-central-catholic","NE-cambridge","NE-falls-city-sacred-heart","NE-st-mary-s"],"won":["NE-lawrence-nelson","NE-wynot","NE-anselmo-merna","NE-guardian-angels-central-catholic","NE-archangels-catholic","NE-dundy-county-stratton","NE-twin-loup","NE-central-valley"]},"C1":{"seeds":["NE-sidney","NE-boys-town","NE-chadron","NE-pierce","NE-syracuse","NE-ashland-greenwood","NE-lincoln-christian","NE-wahoo","NE-adams-central","NE-minden","NE-omaha-roncalli-catholic","NE-oneill","NE-cozad","NE-auburn","NE-alliance","NE-central-city"],"won":["NE-sidney","NE-adams-central","NE-syracuse","NE-cozad","NE-chadron","NE-ashland-greenwood","NE-lincoln-christian","NE-boys-town"]},"D1":{"seeds":["NE-johnson-brock","NE-sandy-creek","NE-stanton","NE-ravenna","NE-crofton","NE-hartington-newcastle","NE-sutton","NE-exeter-milligan-friend","NE-elmwood-murdock","NE-wisner-pilger","NE-centura","NE-elkhorn-valley","NE-cross-county","NE-alma","NE-ponca","NE-amherst"],"won":["NE-johnson-brock","NE-exeter-milligan-friend","NE-crofton","NE-ravenna","NE-stanton","NE-hartington-newcastle","NE-sutton","NE-sandy-creek"]},"B":{"seeds":["NE-gretna","NE-gretna-east","NE-scottsbluff","NE-aurora","NE-omaha-skutt-catholic","NE-blair","NE-waverly","NE-northwest","NE-norris","NE-elkhorn","NE-mccook","NE-ralston","NE-york","NE-omaha-gross-catholic","NE-hastings","NE-lincoln-pius-x"],"won":["NE-gretna","NE-northwest","NE-omaha-skutt-catholic","NE-aurora","NE-scottsbluff","NE-blair","NE-waverly","NE-gretna-east"]},"C2":{"seeds":["NE-grand-island-central-catholic","NE-bergan-catholic","NE-cedar-catholic","NE-ord","NE-yutan","NE-boone-central","NE-gothenburg","NE-malcolm","NE-bishop-neumann","NE-scotus-central-catholic","NE-mitchell","NE-wilber-clatonia","NE-fillmore-central","NE-lincoln-lutheran","NE-west-point-beemer","NE-hershey"],"won":["NE-grand-island-central-catholic","NE-malcolm","NE-yutan","NE-ord","NE-cedar-catholic","NE-boone-central","NE-gothenburg","NE-bergan-catholic"]}};
+const CLASSES = ["A","B","C1","C2","D1","D2","D3","D6"];
+const byId = {}; T.forEach(t => { t.p = t.o + t.d; byId[t.id] = t; });
+const $ = id => document.getElementById(id);
+let W = 0.70;
+const fmtOf = c => c === "D6" ? "6-man" : (c[0] === "D" ? "8-man" : "11-man");
+
+function mri(t){ return 50 + 15*(W*t.zp + (1-W)*t.zr); }
+function rankAll(){
+  CLASSES.forEach(c => {
+    const g = T.filter(t => t.c === c).sort((a,b) => mri(b)-mri(a));
+    const pw = [...g].sort((a,b) => b.p-a.p), rs = [...g].sort((a,b) => b.rs-a.rs);
+    g.forEach((t,i) => { t.mr = i+1; t.pr = pw.indexOf(t)+1; t.rr = rs.indexOf(t)+1; });
+  });
+}
+const label = t => `${t.n} (${t.c}, ${t.w}-${t.l})`;
+const sgn = (x,d=1) => (x>0?"+":x<0?"−":"") + Math.abs(x).toFixed(d);
+function amer(p){ if(p<=0||p>=1) return "n/a"; return p>=.5 ? "−"+Math.round(100*p/(1-p)) : "+"+Math.round(100*(1-p)/p); }
+function winp(a,b,loc){ const q = PR[a.f]; return 1/(1+Math.exp(-(a.p-b.p+loc*q.H)/q.s)); }
+function find(txt, fmt){
+  txt = (txt||"").trim().toLowerCase(); if(!txt) return null;
+  const pool = fmt ? T.filter(t => t.f === fmt) : T;
+  return pool.find(t => label(t).toLowerCase() === txt) || pool.find(t => t.n.toLowerCase() === txt) || null;
+}
+function fillList(el, fmt){
+  const pool = (fmt ? T.filter(t => t.f === fmt) : T).slice().sort((a,b) => a.n.localeCompare(b.n));
+  el.innerHTML = pool.map(t => `<option value="${label(t).replace(/"/g,"&quot;")}"></option>`).join("");
+}
+
+/* ---- matchup */
+let A = byId["NE-omaha-westside"], B = byId["NE-millard-south"];
+function renderMatch(){
+  const warn = $("warn"); warn.textContent = "";
+  const fmt = $("fmtA").value;
+  const a = find($("ta").value, fmt), b = find($("tb").value, fmt);
+  if(a) A = a; if(b) B = b;
+  if(A.f !== fmt || B.f !== fmt){ warn.textContent = "Pick two teams from the selected format."; return; }
+  if(!a || !b) warn.textContent = "Showing the last valid pick. Choose a team from the list to change it.";
+  if(A === B){ warn.textContent = "Pick two different teams."; return; }
+  const loc = +$("loc").value, q = PR[fmt];
+  const p = winp(A,B,loc), m = A.p - B.p + loc*q.H;
+  // Likely score: the most probable realistic final. Margin and total come from the model; each team's points are weighted by how
+  // often real scores of that size occur (touchdown/PAT/field goal multiples), so 35-14 beats 33-18.
+  const raw = (q.mu + A.o - B.d + loc*q.H/2) + (q.mu + B.o - A.d - loc*q.H/2);
+  const tot = Math.max(Math.abs(m)+2, q.c0 + q.c1*raw + q.c2*Math.abs(m));
+  const N = q.lump.length, grid = [];
+  for(let a=0;a<N;a++) for(let b=0;b<N;b++){ if(a===b) continue;
+    grid.push([a,b,-Math.abs((a-b)-m)/q.sm-Math.abs((a+b)-tot)/q.st+0.5*(Math.log(q.lump[a])+Math.log(q.lump[b]))]); }
+  grid.sort((x,y)=>y[2]-x[2]);
+  const sa = grid[0][0], sb = grid[0][1];
+  $("alts").textContent = "Also common: " + grid.slice(1,4).map(g=>g[0]+"\u2013"+g[1]).join(" \u00b7 ");
+  $("na").textContent = A.n; $("nb").textContent = B.n;
+  const mt = t => `Class ${t.c} · ${t.w}-${t.l} · MRI #${t.mr} · power ${sgn(t.p)}` + (t.ev ? " · thin data" : "");
+  $("ma").textContent = mt(A); $("mb").textContent = mt(B);
+  $("pa").textContent = (p*100).toFixed(1)+"%"; $("pb").textContent = ((1-p)*100).toFixed(1)+"%";
+  $("fa").style.width = (p*100)+"%"; $("fb").style.width = ((1-p)*100)+"%";
+  $("odds").textContent = amer(p)+" / "+amer(1-p);
+  $("score").textContent = `${Math.round(sa)}–${Math.round(sb)}`;
+  $("mar").textContent = sgn(m);
+  $("rng").textContent = `${sgn(m+q.q25,0)} to ${sgn(m+q.q75,0)}`;
+  $("gap").textContent = sgn(A.p-B.p);
+  const flagged = [A,B].filter(t => t.ev).map(t => t.n);
+  if(flagged.length) warn.textContent = flagged.join(" and ") + (flagged.length>1?" have":" has") + " forfeits or few scored games, so the rating leans more on the league average.";
+}
+function setupMatch(){
+  const fmt = $("fmtA").value;
+  fillList($("dl"), fmt);
+  A = (A.f===fmt) ? A : T.filter(t=>t.f===fmt).sort((x,y)=>mri(y)-mri(x))[0];
+  B = (B.f===fmt && B!==A) ? B : T.filter(t=>t.f===fmt && t!==A).sort((x,y)=>y.p-x.p)[0];
+  $("ta").value = label(A); $("tb").value = label(B); renderMatch();
+}
+
+/* ---- compare */
+function renderCompare(){
+  const base = find($("cb").value) || A, cls = $("cc").value, loc = +$("cl").value;
+  $("cb").value = label(base);
+  const q = PR[base.f];
+  let pool = T.filter(t => t.f === base.f && t !== base && (cls === "all" || t.c === cls));
+  pool = pool.map(t => ({t, p: winp(base,t,loc), m: base.p - t.p + loc*q.H})).sort((a,b) => a.p-b.p);
+  $("ct").innerHTML = `<thead><tr><th>MRI</th><th>Opponent</th><th>Record</th><th>Power</th><th>${base.n} win</th><th>Margin</th></tr></thead><tbody>` +
+    pool.map(r => `<tr><td>${r.t.c} #${r.t.mr}</td><td class="t">${r.t.n}</td><td>${r.t.w}-${r.t.l}</td><td>${sgn(r.t.p)}</td><td>${(r.p*100).toFixed(0)}%<span class="bar" style="width:${Math.round(r.p*70)}px"></span></td><td>${sgn(r.m)}</td></tr>`).join("") + "</tbody>";
+}
+function setupCompare(){
+  fillList($("dlAll"), null);
+  const sel = $("cc"); const fmt = (find($("cb").value)||A).f;
+  const opts = CLASSES.filter(c => fmtOf(c) === fmt);
+  sel.innerHTML = `<option value="all">All ${fmt} teams</option>` + opts.map(c => `<option value="${c}">Class ${c} only</option>`).join("");
+  renderCompare();
+}
+
+/* ---- playoff odds */
+function seedOrder(n){ let o=[1]; while(o.length<n){ const m=o.length*2+1; o=o.flatMap(s=>[s,m-s]); } return o; }
+const custom = {};
+function renderField(){
+  const c = $("fc").value, mode = $("fm").value, B = BRK[c];
+  const nsaa = mode === "nsaa" && B;
+  const n = nsaa ? 16 : Math.min(+$("fs").value, T.filter(t=>t.c===c).length);
+  let size = 1; while(size*2 <= n) size *= 2;   // largest power of two that fits
+  const classTeams = T.filter(t => t.c===c).sort((a,b) => a.mr-b.mr);
+  const mriTop = classTeams.slice(0,size), isCustom = mode === "custom", neutral = $("fh").value === "neutral";
+  $("fs").disabled = !!nsaa;
+  const key = c+"|"+size;
+  if(isCustom && !custom[key]) custom[key] = (B && size===16 ? B.seeds : mriTop.map(t => t.id)).slice();
+  const teams = nsaa ? B.seeds.map(id => byId[id]) : isCustom ? custom[key].map(id => byId[id]) : mriTop;
+  const wonSet = new Set(B ? B.won : []);
+  const lockR1 = $("fr").value === "lock" && B && size === 16;
+  const realPair = (x,y) => B && ((wonSet.has(x.id) && !wonSet.has(y.id)) || (wonSet.has(y.id) && !wonSet.has(x.id))) && realPairs.has([x.id,y.id].sort().join("|"));
+  const realPairs = new Set(); if(B){ const o=seedOrder(16); for(let i=0;i<16;i+=2) realPairs.add([B.seeds[o[i]-1],B.seeds[o[i+1]-1]].sort().join("|")); }
+  $("fe").classList.toggle("hidden", !isCustom);
+  if(isCustom){
+    $("fseeds").innerHTML = teams.map((t,i) => `<div class="seedrow"><span class="sn">${i+1}</span>` +
+      `<select data-i="${i}" aria-label="Seed ${i+1}">` + classTeams.map(o => `<option value="${o.id}"${o===t?" selected":""}>${o.n} (${o.w}-${o.l}, MRI #${o.mr})</option>`).join("") + `</select>` +
+      `<button type="button" class="btn mv" data-up="${i}" aria-label="Move seed ${i+1} up"${i===0?" disabled":""}>\u2191</button>` +
+      `<button type="button" class="btn mv" data-dn="${i}" aria-label="Move seed ${i+1} down"${i===size-1?" disabled":""}>\u2193</button></div>`).join("");
+  }
+  const q = PR[teams[0].f], order = seedOrder(size), rounds = Math.log2(size);
+  const reach = teams.map(() => new Array(rounds+1).fill(0));
+  function play(lo,hi){
+    if(lo===hi){ const o={}; o[order[lo]-1]=1; return o; }
+    const mid=(lo+hi+1)>>1, L=play(lo,mid-1), R=play(mid,hi), out={};
+    const lvl = Math.log2(hi-lo+1);
+    for(const a in L) for(const b in R){
+      const ta=teams[a], tb=teams[b], hostA = (+a) < (+b);
+      let pa = winp(ta,tb, neutral?0:(hostA?1:-1));   // higher seed hosts unless neutral
+      if(lockR1 && lvl===1 && realPair(ta,tb)) pa = wonSet.has(ta.id) ? 1 : 0;
+      const pb = 1-pa;
+      out[a]=(out[a]||0)+L[a]*R[b]*pa; out[b]=(out[b]||0)+L[a]*R[b]*pb;
+    }
+    for(const k in out) reach[k][lvl] += out[k];
+    return out;
+  }
+  play(0,size-1);
+  const heads = []; for(let r=1;r<=rounds;r++) heads.push(r===rounds ? "Title" : (r===rounds-1 ? "Reach final" : "Win R"+r));
+  const rows = teams.map((t,i) => ({t, seed:i+1, v:Array.from({length:rounds},(_,r)=>reach[i][r+1])}));
+  const pct = v => v>=.995?">99%":v<.005?"<1%":(v*100).toFixed(v<.1?1:0)+"%";
+  $("ft").innerHTML = `<thead><tr><th>Seed</th><th>Team</th><th>Record</th><th>MRI rk</th><th>MRI</th>${heads.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${r.seed}</td><td class="t">${r.t.n}${isCustom && r.t.mr!==r.seed ? `<span class="moved">MRI #${r.t.mr}</span>`:""}</td><td>${r.t.w}-${r.t.l}</td><td>${r.t.mr}</td><td>${mri(r.t).toFixed(1)}</td>` +
+      r.v.map((v,k) => `<td${k===rounds-1?' class="title-odds"':''}>${pct(v)}</td>`).join("") + `</tr>`).join("") + "</tbody>";
+  const site = neutral ? "all games at neutral sites" : "higher seed hosts";
+  $("fn").textContent = (nsaa
+    ? `Class ${c}: the actual 2026 NSAA bracket, 16 teams, ${lockR1 ? "with first-round results locked in (those teams show 100% to win Round 1) and the rest simulated" : "all rounds simulated"}, ${site}. `
+    : isCustom
+    ? `Class ${c}: ${size}-team bracket with the seeds you set (change a seed to swap it with the team already there; reset returns to the starting order), ${site}. `
+    : `Class ${c}: top ${size} teams by current MRI, seeded 1 to ${size}, ${site}. `)
+    + `Odds multiply through the bracket with the same win-chance curve as the Matchup tab.`;
+}
+function fieldSize(){ const c=$("fc").value, B=BRK[c]; const n = ($("fm").value==="nsaa"&&B) ? 16 : Math.min(+$("fs").value,T.filter(t=>t.c===c).length); let z=1; while(z*2<=n) z*=2; return z; }
+$("fseeds").addEventListener("change", e => {
+  if(e.target.tagName !== "SELECT") return;
+  const c = $("fc").value, size = fieldSize();
+  const arr = custom[c+"|"+size], i = +e.target.dataset.i, id = e.target.value, j = arr.indexOf(id);
+  if(j >= 0 && j !== i){ arr[j] = arr[i]; }
+  arr[i] = id; renderField();
+});
+$("fseeds").addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  const c = $("fc").value, size = fieldSize();
+  const arr = custom[c+"|"+size]; const i = b.dataset.up !== undefined ? +b.dataset.up : +b.dataset.dn, k = b.dataset.up !== undefined ? i-1 : i+1;
+  if(k<0||k>=arr.length) return; [arr[i],arr[k]] = [arr[k],arr[i]]; renderField();
+});
+$("freset").addEventListener("click", () => { Object.keys(custom).forEach(k => delete custom[k]); renderField(); });
+
+/* ---- rankings */
+function renderRank(){
+  const c = $("rc").value, g = T.filter(t => t.c===c).sort((a,b) => a.mr-b.mr);
+  $("rt").innerHTML = `<thead><tr><th>#</th><th>Team</th><th>Record</th><th>MRI</th><th>Power</th><th>Power rk</th><th>Resume</th><th>Resume rk</th></tr></thead><tbody>` +
+    g.map(t => `<tr><td>${t.mr}</td><td class="t">${t.n}${t.ev?'<span class="flag">thin data</span>':''}</td><td>${t.w}-${t.l}</td><td class="t">${mri(t).toFixed(1)}</td><td>${sgn(t.p)}</td><td>${t.pr}</td><td>${sgn(t.rs)}</td><td>${t.rr}</td></tr>`).join("") + "</tbody>";
+}
+
+/* ---- wiring */
+function setMode(m){
+  document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", String(b.dataset.m===m)));
+  ["match","compare","field","rank"].forEach(k => $("m-"+k).classList.toggle("hidden", k!==m));
+  $("blend").classList.toggle("hidden", !(m==="field"||m==="rank"));
+  if(m==="compare") setupCompare(); if(m==="field") renderField(); if(m==="rank") renderRank(); if(m==="match") renderMatch();
+  try{ history.replaceState(null,"","#"+m); }catch(e){}
+}
+function refreshAll(){
+  rankAll(); const m = document.querySelector('.tab[aria-selected="true"]').dataset.m; setMode(m);
+}
+document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => setMode(b.dataset.m)));
+$("w").addEventListener("input", e => { W = e.target.value/100; $("wl").textContent = `${e.target.value}% power / ${100-e.target.value}% resume`; refreshAll(); });
+$("fmtA").addEventListener("change", setupMatch);
+["ta","tb"].forEach(id => $(id).addEventListener("change", renderMatch));
+$("loc").addEventListener("change", renderMatch);
+$("cb").addEventListener("change", setupCompare); $("cc").addEventListener("change", renderCompare); $("cl").addEventListener("change", renderCompare);
+$("fc").addEventListener("change", renderField); $("fs").addEventListener("change", renderField); $("fm").addEventListener("change", renderField); $("fh").addEventListener("change", renderField); $("fr").addEventListener("change", renderField);
+$("rc").addEventListener("change", renderRank);
+$("fc").innerHTML = $("rc").innerHTML = CLASSES.map(c => `<option value="${c}">Class ${c}</option>`).join("");
+rankAll(); setupMatch();
+$("cb").value = label(A);
+const h = (location.hash||"").slice(1); if(["compare","field","rank"].includes(h)) setMode(h);
+</script>
+
+</body></html>
